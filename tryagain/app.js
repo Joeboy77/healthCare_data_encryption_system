@@ -124,28 +124,42 @@ app.post('/encrypt', upload.single('file'), async (req, res) => {
 
         const { encryptedFilePath, key, iv, keyFilePath } = await encryptFile(req.file.path);
 
-        // Send the email with the encrypted file and key
-        await sendEmail(encryptedFilePath, key, iv);
-
-        // Clean up the uploaded and encrypted files after processing
+        // Clean up the uploaded file after processing
         await fs.unlink(req.file.path);
-        // Don't delete the encrypted files so you can provide download links
-        // await fs.unlink(encryptedFilePath);
 
         const encryptedFilename = path.basename(encryptedFilePath);
         const keyFilename = path.basename(keyFilePath);
 
-        // Send a proper response with both download links
-        res.status(200).json({
-            message: 'File encrypted and sent to email',
-            encryptedFile: `/download/${encryptedFilename}`,
-            keyFile: `/download/${keyFilename}`
+        // Create a zip to package both the encrypted file and the key
+        const zip = new require('node-zip')();
+        const encryptedFileContent = await fs.readFile(encryptedFilePath);
+        const keyFileContent = await fs.readFile(keyFilePath);
+
+        zip.file(encryptedFilename, encryptedFileContent);
+        zip.file(keyFilename, keyFileContent);
+
+        const zippedData = zip.generate({ base64: false, compression: 'DEFLATE' });
+        const zipFilename = `encrypted_data_${Date.now()}.zip`;
+        const zipPath = path.join(__dirname, zipFilename);
+
+        await fs.writeFile(zipPath, zippedData, 'binary');
+
+        // Send the zip file to download
+        res.download(zipPath, zipFilename, async (err) => {
+            if (err) {
+                console.error('Error downloading zip file:', err);
+                res.status(500).send('Failed to download file');
+            } else {
+                // Clean up the zip file after sending
+                await fs.unlink(zipPath);
+            }
         });
     } catch (error) {
         console.error("Error:", error);
         res.status(500).json({ error: 'Failed to encrypt file or send email' });
     }
 });
+
 
 
 
